@@ -26,62 +26,14 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Fix Release Startup Crash (Firebase BoM 34.18.0, AndroidManifest & Crash Catcher)
+      - name: Fix Release Startup Crash & Preserve Launcher Icon (Firebase BoM 34.18.0 & Clean Manifest)
         run: |
-          # 1. Sync lib/firebase_options.dart from android/app/google-services.json
+          # 1. Keep google-services.json consistent across android/app and android/app/src/main
           if [ -f "android/app/google-services.json" ]; then
             cp -f android/app/google-services.json android/app/src/main/google-services.json 2>/dev/null || true
-            API_KEY=$(jq -r '.client[0].api_key[0].current_key' android/app/google-services.json)
-            APP_ID=$(jq -r '.client[0].client_info.mobilesdk_app_id' android/app/google-services.json)
-            SENDER_ID=$(jq -r '.project_info.project_number' android/app/google-services.json)
-            PROJECT_ID=$(jq -r '.project_info.project_id' android/app/google-services.json)
-            DB_URL=$(jq -r '.project_info.firebase_url // ("https://" + .project_info.project_id + "-default-rtdb.firebaseio.com")' android/app/google-services.json)
-            BUCKET=$(jq -r '.project_info.storage_bucket' android/app/google-services.json)
-
-            cat <<EOF > lib/firebase_options.dart
-          // Auto-generated from android/app/google-services.json
-          // ignore_for_file: type=lint
-          import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
-          import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb, TargetPlatform;
-
-          class DefaultFirebaseOptions {
-            static FirebaseOptions get currentPlatform {
-              if (kIsWeb) {
-                return android;
-              }
-              switch (defaultTargetPlatform) {
-                case TargetPlatform.android:
-                  return android;
-                case TargetPlatform.iOS:
-                  return ios;
-                default:
-                  return android;
-              }
-            }
-
-            static const FirebaseOptions android = FirebaseOptions(
-              apiKey: '$API_KEY',
-              appId: '$APP_ID',
-              messagingSenderId: '$SENDER_ID',
-              projectId: '$PROJECT_ID',
-              databaseURL: '$DB_URL',
-              storageBucket: '$BUCKET',
-            );
-
-            static const FirebaseOptions ios = FirebaseOptions(
-              apiKey: '$API_KEY',
-              appId: '$APP_ID',
-              messagingSenderId: '$SENDER_ID',
-              projectId: '$PROJECT_ID',
-              databaseURL: '$DB_URL',
-              storageBucket: '$BUCKET',
-              iosBundleId: 'com.tictac.wrteam.TicTacToe',
-            );
-          }
-          EOF
           fi
 
-          # 2. Write clean AndroidManifest.xml with INTERNET permission & On-Screen Crash Catcher
+          # 2. Write clean single-activity AndroidManifest.xml (MainActivity ONLY so Launcher Icon & Open button always appear!)
           cat << 'EOF' > android/app/src/main/AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET"/>
@@ -93,23 +45,10 @@ jobs:
                   android:name="${applicationName}"
                   android:icon="@mipmap/ic_launcher">
 
-                  <provider
-                      android:name=".CrashCatcherProvider"
-                      android:authorities="${applicationId}.crashcatcher"
-                      android:exported="false"
-                      android:initOrder="999999999" />
-
-                  <activity
-                      android:name=".CrashViewerActivity"
-                      android:exported="false"
-                      android:process=":crash_viewer"
-                      android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
-
                   <activity
                       android:name=".MainActivity"
                       android:exported="true"
                       android:launchMode="singleTop"
-                      android:taskAffinity=""
                       android:theme="@style/LaunchTheme"
                       android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
                       android:hardwareAccelerated="true"
@@ -142,7 +81,7 @@ jobs:
           </manifest>
           EOF
 
-          # 3. CRITICAL FIX: Upgrade firebase-bom from 33.7.0 to 34.18.0 & remove conflicting datastore 1.2.0 constraints
+          # 3. Fix android/app/build.gradle (Upgrade firebase-bom from 33.7.0 to 34.18.0 & remove broken datastore 1.2.0 constraints)
           cat << 'EOF' > android/app/build.gradle
           plugins {
               id "com.android.application"
@@ -163,17 +102,12 @@ jobs:
               ndkVersion = flutter.ndkVersion
 
               compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_17
-                  targetCompatibility = JavaVersion.VERSION_17
+                  sourceCompatibility = JavaVersion.VERSION_1_8
+                  targetCompatibility = JavaVersion.VERSION_1_8
               }
 
               kotlinOptions {
-                  jvmTarget = "17"
-              }
-
-              sourceSets {
-                  main.java.srcDirs += 'src/main/java'
-                  main.java.srcDirs += 'src/main/kotlin'
+                  jvmTarget = JavaVersion.VERSION_1_8
               }
 
               defaultConfig {
@@ -212,146 +146,13 @@ jobs:
           }
           EOF
 
-          # 4. Create MainActivity.java + On-Screen CrashCatcherProvider & CrashViewerActivity
-          rm -rf android/app/src/main/kotlin
-          mkdir -p android/app/src/main/java/com/tictac/wrteam/TicTacToe
-          cat << 'EOF' > android/app/src/main/java/com/tictac/wrteam/TicTacToe/MainActivity.java
-          package com.tictac.wrteam.TicTacToe;
-
-          import io.flutter.embedding.android.FlutterActivity;
-
-          public class MainActivity extends FlutterActivity {
-          }
-          EOF
-
-          cat << 'EOF' > android/app/src/main/java/com/tictac/wrteam/TicTacToe/CrashCatcherProvider.java
-          package com.tictac.wrteam.TicTacToe;
-
-          import android.content.ContentProvider;
-          import android.content.ContentValues;
-          import android.content.Context;
-          import android.content.Intent;
-          import android.database.Cursor;
-          import android.net.Uri;
-          import java.io.PrintWriter;
-          import java.io.StringWriter;
-
-          public class CrashCatcherProvider extends ContentProvider {
-              @Override
-              public boolean onCreate() {
-                  final Context context = getContext();
-                  final Thread.UncaughtExceptionHandler defaultHandler = Thread.getDefaultUncaughtExceptionHandler();
-                  Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
-                      @Override
-                      public void uncaughtException(Thread thread, Throwable throwable) {
-                          try {
-                              StringWriter sw = new StringWriter();
-                              PrintWriter pw = new PrintWriter(sw);
-                              throwable.printStackTrace(pw);
-                              String stackTrace = sw.toString();
-
-                              if (context != null) {
-                                  Intent intent = new Intent(context, CrashViewerActivity.class);
-                                  intent.putExtra("stack_trace", stackTrace);
-                                  intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                                  context.startActivity(intent);
-                                  android.os.Process.killProcess(android.os.Process.myPid());
-                                  System.exit(10);
-                                  return;
-                              }
-                          } catch (Throwable ignored) {
-                          }
-                          if (defaultHandler != null) {
-                              defaultHandler.uncaughtException(thread, throwable);
-                          }
-                      }
-                  });
-                  return true;
-              }
-
-              @Override
-              public Cursor query(Uri u, String[] p, String s, String[] sa, String so) { return null; }
-              @Override
-              public String getType(Uri u) { return null; }
-              @Override
-              public Uri insert(Uri u, ContentValues v) { return null; }
-              @Override
-              public int delete(Uri u, String s, String[] sa) { return 0; }
-              @Override
-              public int update(Uri u, ContentValues v, String s, String[] sa) { return 0; }
-          }
-          EOF
-
-          cat << 'EOF' > android/app/src/main/java/com/tictac/wrteam/TicTacToe/CrashViewerActivity.java
-          package com.tictac.wrteam.TicTacToe;
-
-          import android.app.Activity;
-          import android.content.ClipData;
-          import android.content.ClipboardManager;
-          import android.content.Context;
-          import android.graphics.Color;
-          import android.os.Bundle;
-          import android.view.View;
-          import android.widget.Button;
-          import android.widget.LinearLayout;
-          import android.widget.ScrollView;
-          import android.widget.TextView;
-          import android.widget.Toast;
-
-          public class CrashViewerActivity extends Activity {
-              @Override
-              protected void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-                  final String trace = getIntent().getStringExtra("stack_trace");
-                  final String displayTrace = trace != null ? trace : "Unknown startup error";
-
-                  LinearLayout root = new LinearLayout(this);
-                  root.setOrientation(LinearLayout.VERTICAL);
-                  root.setBackgroundColor(Color.parseColor("#0F172A"));
-                  root.setPadding(32, 64, 32, 32);
-
-                  TextView title = new TextView(this);
-                  title.setText("Startup Crash Diagnostic Log");
-                  title.setTextColor(Color.parseColor("#F87171"));
-                  title.setTextSize(18f);
-                  root.addView(title);
-
-                  Button copyBtn = new Button(this);
-                  copyBtn.setText("Copy Error Log");
-                  copyBtn.setOnClickListener(new View.OnClickListener() {
-                      @Override
-                      public void onClick(View v) {
-                          ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                          if (cm != null) {
-                              cm.setPrimaryClip(ClipData.newPlainText("CrashLog", displayTrace));
-                              Toast.makeText(CrashViewerActivity.this, "Copied Crash Log!", Toast.LENGTH_SHORT).show();
-                          }
-                      }
-                  });
-                  root.addView(copyBtn);
-
-                  ScrollView scroll = new ScrollView(this);
-                  TextView logView = new TextView(this);
-                  logView.setText(displayTrace);
-                  logView.setTextColor(Color.WHITE);
-                  logView.setTextSize(12f);
-                  logView.setPadding(0, 24, 0, 24);
-                  scroll.addView(logView);
-                  root.addView(scroll);
-
-                  setContentView(root);
-              }
-          }
-          EOF
-
-          # 5. Safe lib/main.dart initialization
+          # 4. Safe lib/main.dart initialization
           cat << 'EOF' > lib/main.dart
           import 'package:flutter/foundation.dart';
           import 'package:flutter/material.dart';
           import 'package:flutter/services.dart';
 
           import 'package:app_tracking_transparency/app_tracking_transparency.dart';
-          import 'package:firebase_app_check/firebase_app_check.dart';
           import 'package:firebase_core/firebase_core.dart';
           import 'package:google_mobile_ads/google_mobile_ads.dart';
           import 'package:unity_ads_plugin/unity_ads_plugin.dart';
@@ -398,14 +199,14 @@ jobs:
                   options: DefaultFirebaseOptions.currentPlatform,
                 );
               }
-              await FirebaseAppCheck.instance.activate(
-                providerAndroid:
-                    kDebugMode ? AndroidDebugProvider() : AndroidPlayIntegrityProvider(),
-                providerApple:
-                    kDebugMode ? AppleDebugProvider() : AppleAppAttestProvider(),
-              );
             } catch (e) {
-              debugPrint('Firebase/AppCheck init warning: $e');
+              try {
+                if (Firebase.apps.isEmpty) {
+                  await Firebase.initializeApp();
+                }
+              } catch (e2) {
+                debugPrint('Firebase init error: $e2');
+              }
             }
 
             try {
@@ -470,6 +271,18 @@ jobs:
 
       - name: Build Android Package
         run: flutter build apk --release --no-shrink
+
+      - name: Verify APK Launcher Activity & Icon (aapt)
+        run: |
+          AAPT_BIN=$(find $ANDROID_HOME/build-tools -name "aapt" | sort -V | tail -n 1)
+          APK_FILE=$(find build/app/outputs/flutter-apk -name "*.apk" | head -n 1)
+          if [ -n "$AAPT_BIN" ] && [ -n "$APK_FILE" ]; then
+            echo "### APK Manifest Verification" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            "$AAPT_BIN" dump badging "$APK_FILE" | grep -E "package:|launchable-activity:|application-label:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            "$AAPT_BIN" dump badging "$APK_FILE" | grep -E "package:|launchable-activity:|application-label:"
+          fi
 
       - name: Upload Compiled APK Artifact
         uses: actions/upload-artifact@v4
