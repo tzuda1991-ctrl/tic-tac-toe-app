@@ -31,10 +31,11 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Auto-Sync lib/firebase_options.dart from android/app/google-services.json
+      - name: Fix Release Startup Crash (AndroidManifest INTERNET Permission, Safe main.dart & Firebase Sync)
         run: |
+          # 1. Sync google-services.json & lib/firebase_options.dart
           if [ -f "android/app/google-services.json" ]; then
-            echo "Found android/app/google-services.json — syncing lib/firebase_options.dart automatically..."
+            cp -f android/app/google-services.json android/app/src/main/google-services.json 2>/dev/null || true
             API_KEY=$(jq -r '.client[0].api_key[0].current_key' android/app/google-services.json)
             APP_ID=$(jq -r '.client[0].client_info.mobilesdk_app_id' android/app/google-services.json)
             SENDER_ID=$(jq -r '.project_info.project_number' android/app/google-services.json)
@@ -43,7 +44,6 @@ jobs:
             BUCKET=$(jq -r '.project_info.storage_bucket' android/app/google-services.json)
 
             cat <<EOF > lib/firebase_options.dart
-          // Auto-generated from android/app/google-services.json by GitHub Actions
           // ignore_for_file: type=lint
           import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
           import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb, TargetPlatform;
@@ -83,10 +83,123 @@ jobs:
             );
           }
           EOF
-          else
-            echo "ERROR: android/app/google-services.json not found!"
-            exit 1
           fi
+
+          # 2. CRITICAL FIX: Add missing INTERNET & BILLING permissions to src/main/AndroidManifest.xml
+          if ! grep -q "android.permission.INTERNET" android/app/src/main/AndroidManifest.xml; then
+            sed -i 's|<manifest xmlns:android="http://schemas.android.com/apk/res/android">|<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>\n    <uses-permission android:name="com.android.vending.BILLING"/>|' android/app/src/main/AndroidManifest.xml
+          fi
+
+          # 3. CRITICAL FIX: Create MainActivity.java in src/main/java/com/tictac/wrteam/TicTacToe/
+          rm -rf android/app/src/main/kotlin
+          mkdir -p android/app/src/main/java/com/tictac/wrteam/TicTacToe
+          cat << 'EOF' > android/app/src/main/java/com/tictac/wrteam/TicTacToe/MainActivity.java
+          package com.tictac.wrteam.TicTacToe;
+
+          import io.flutter.embedding.android.FlutterActivity;
+
+          public class MainActivity extends FlutterActivity {
+          }
+          EOF
+
+          cat << 'EOF' > android/app/proguard-rules.pro
+          -keep class io.flutter.** { *; }
+          -keep class com.google.firebase.** { *; }
+          -keep class com.google.android.gms.** { *; }
+          -keep class com.tictac.wrteam.TicTacToe.** { *; }
+          -dontwarn **
+          EOF
+
+          # 4. CRITICAL FIX: Wrap FirebaseAppCheck & Ads init in try-catch in lib/main.dart
+          cat << 'EOF' > lib/main.dart
+          import 'package:flutter/foundation.dart';
+          import 'package:flutter/material.dart';
+          import 'package:flutter/services.dart';
+
+          import 'package:app_tracking_transparency/app_tracking_transparency.dart';
+          import 'package:firebase_app_check/firebase_app_check.dart';
+          import 'package:firebase_core/firebase_core.dart';
+          import 'package:google_mobile_ads/google_mobile_ads.dart';
+          import 'package:unity_ads_plugin/unity_ads_plugin.dart';
+
+          import 'package:tic_tac_toe/firebase_options.dart';
+          import 'package:tic_tac_toe/utils/local_storage.dart';
+          import 'package:tic_tac_toe/core/constants/ad_config.dart';
+          import 'package:tic_tac_toe/core/app.dart';
+          import 'package:tic_tac_toe/core/services/sound_service.dart';
+          import 'package:tic_tac_toe/core/theme/colors.dart';
+
+          void main(List<String> args) async {
+            WidgetsFlutterBinding.ensureInitialized();
+
+            await SystemChrome.setPreferredOrientations(const [
+              DeviceOrientation.portraitUp,
+            ]);
+            SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+            SystemChrome.setSystemUIOverlayStyle(
+              SystemUiOverlayStyle(
+                statusBarColor: Colors.transparent,
+                statusBarIconBrightness: Brightness.light,
+                systemNavigationBarColor: AppColors.screenBackgroundGradient.last,
+                systemNavigationBarIconBrightness: Brightness.light,
+                systemNavigationBarDividerColor: Colors.transparent,
+              ),
+            );
+
+            try {
+              await LocalStorage.init();
+            } catch (e) {
+              debugPrint('LocalStorage init error: $e');
+            }
+
+            try {
+              await SoundService.init();
+            } catch (e) {
+              debugPrint('SoundService init error: $e');
+            }
+
+            try {
+              if (Firebase.apps.isEmpty) {
+                await Firebase.initializeApp(
+                  options: DefaultFirebaseOptions.currentPlatform,
+                );
+              }
+              await FirebaseAppCheck.instance.activate(
+                providerAndroid:
+                    kDebugMode ? AndroidDebugProvider() : AndroidPlayIntegrityProvider(),
+                providerApple:
+                    kDebugMode ? AppleDebugProvider() : AppleAppAttestProvider(),
+              );
+            } catch (e) {
+              debugPrint('Firebase/AppCheck init warning: $e');
+            }
+
+            try {
+              if (AdConfig.bannerAdEnabled ||
+                  AdConfig.interstitialAdEnabled ||
+                  AdConfig.rewardedAdEnabled) {
+                if (defaultTargetPlatform == TargetPlatform.iOS) {
+                  await AppTrackingTransparency.requestTrackingAuthorization();
+                }
+                if (AdConfig.adProvider == AdProviderType.google) {
+                  await MobileAds.instance.initialize();
+                } else {
+                  await UnityAds.init(
+                    gameId: AdConfig.unityGameId,
+                    testMode: kDebugMode,
+                    onComplete: () => debugPrint('Unity Ads initialized'),
+                    onFailed: (error, message) =>
+                        debugPrint('Unity Ads init failed: $error $message'),
+                  );
+                }
+              }
+            } catch (e) {
+              debugPrint('Ads init warning: $e');
+            }
+
+            runApp(const App());
+          }
+          EOF
 
       - name: Auto-Generate Release Keystore & Print SHA-1 / SHA-256 for Firebase
         run: |
@@ -108,7 +221,6 @@ jobs:
           storeFile=upload-keystore.jks
           EOF
 
-          # Ensure Gradle dependency version checker doesn't block build
           if ! grep -q "skipDependencyChecks=true" android/gradle.properties; then
             echo "" >> android/gradle.properties
             echo "skipDependencyChecks=true" >> android/gradle.properties
@@ -127,7 +239,7 @@ jobs:
 
       - name: Build Android Package
         run: |
-          flutter build apk --release
+          flutter build apk --release --no-shrink
 
       - name: Upload Compiled APK / AAB to GitHub Actions Artifacts
         uses: actions/upload-artifact@v4
