@@ -47,7 +47,6 @@ jobs:
 
           echo "Resolved Google Drive File ID: $FILE_ID"
 
-          # Method 1: Direct curl from Google Drive UserContent
           curl -L "https://drive.usercontent.google.com/download?id=${FILE_ID}&export=download&confirm=t" -o /tmp/gdrive_download/project_archive
 
           FILE_TYPE=$(file -b /tmp/gdrive_download/project_archive)
@@ -67,7 +66,6 @@ jobs:
           echo "Extracting archive of type: $FILE_TYPE"
           if echo "$FILE_TYPE" | grep -iq "HTML"; then
             echo "ERROR: Google Drive returned an HTML page instead of your RAR file!"
-            echo "Make sure the file permission in Google Drive is set to 'Anyone with the link'."
             exit 1
           fi
 
@@ -92,6 +90,9 @@ jobs:
           rm -rf "$PROJECT_DIR/build" "$PROJECT_DIR/.dart_tool" "$PROJECT_DIR/android/.gradle"
           rm -rf "$PROJECT_DIR/__MACOSX"
 
+          # CRITICAL: Remove RAR's internal .git folder so it doesn't overwrite our repo's credentials
+          rm -rf "$PROJECT_DIR/.git" "$PROJECT_DIR/.github"
+
           # Copy all project files into the Git repository root
           cp -rT "$PROJECT_DIR" "$GITHUB_WORKSPACE/"
 
@@ -113,15 +114,18 @@ jobs:
           EOF
 
       - name: Commit & Push Extracted Project to GitHub Repo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
           git add -A
           if git diff --staged --quiet; then
             echo "No file changes to commit."
           else
             git commit -m "chore: auto-import WRTeam Tic-Tac-Toe Android project from Google Drive"
-            git push origin HEAD:${{ github.ref_name }}
+            git push origin HEAD:${{ github.ref_name }} --force
             echo "### Successfully Imported RAR from Google Drive!" >> $GITHUB_STEP_SUMMARY
             echo "All Flutter Android files are now in your GitHub repository." >> $GITHUB_STEP_SUMMARY
           fi
