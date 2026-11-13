@@ -1,0 +1,107 @@
+name: 01 - Auto Import RAR/ZIP from Google Drive to Git Repo
+
+on:
+  workflow_dispatch:
+    inputs:
+      gdrive_url:
+        description: 'Google Drive Share Link or File ID of your RAR/ZIP'
+        required: true
+        default: 'https://drive.google.com/file/d/1pM-hNExsBy7VvPFBsCGyx-qFrpeVyk9y/view?usp=drivesdk'
+  push:
+    paths:
+      - '.github/workflows/import-from-gdrive.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  import-rar-from-gdrive:
+    name: Download RAR from GDrive & Push to Git Repo
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Install gdown, unrar, 7zip & unzip
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unrar p7zip-full unzip python3-pip file
+          pip3 install --upgrade gdown
+
+      - name: Download Archive from Google Drive
+        env:
+          INPUT_URL: ${{ github.event.inputs.gdrive_url || '1pM-hNExsBy7VvPFBsCGyx-qFrpeVyk9y' }}
+        run: |
+          if [ "$INPUT_URL" = "PASTE_YOUR_GDRIVE_LINK_HERE" ] || [ -z "$INPUT_URL" ]; then
+            echo "ERROR: Please provide your Google Drive Share Link!"
+            exit 1
+          fi
+          mkdir -p /tmp/gdrive_download /tmp/gdrive_extracted
+          echo "Downloading from Google Drive: $INPUT_URL"
+          gdown --fuzzy "$INPUT_URL" -O /tmp/gdrive_download/project_archive
+
+      - name: Extract RAR / ZIP / 7Z Archive
+        run: |
+          FILE_TYPE=$(file -b /tmp/gdrive_download/project_archive)
+          echo "Detected archive type: $FILE_TYPE"
+          if echo "$FILE_TYPE" | grep -iq "RAR"; then
+            unrar x -y /tmp/gdrive_download/project_archive /tmp/gdrive_extracted/
+          elif echo "$FILE_TYPE" | grep -iq "Zip"; then
+            unzip -q -o /tmp/gdrive_download/project_archive -d /tmp/gdrive_extracted/
+          else
+            7z x -y /tmp/gdrive_download/project_archive -o/tmp/gdrive_extracted/ || unrar x -y /tmp/gdrive_download/project_archive /tmp/gdrive_extracted/
+          fi
+
+      - name: Locate Flutter Project (pubspec.yaml) & Clean Android-Only Files
+        run: |
+          PUBSPEC_PATH=$(find /tmp/gdrive_extracted -name "pubspec.yaml" | head -n 1)
+          if [ -z "$PUBSPEC_PATH" ]; then
+            echo "WARNING: pubspec.yaml not found, copying top-level extracted files..."
+            PROJECT_DIR="/tmp/gdrive_extracted"
+          else
+            PROJECT_DIR=$(dirname "$PUBSPEC_PATH")
+            echo "Found Flutter project root at: $PROJECT_DIR"
+          fi
+
+          # Delete ios/ folder (Android-only build — saves 147MB+)
+          rm -rf "$PROJECT_DIR/ios"
+          # Delete temporary build/ and .dart_tool/ caches
+          rm -rf "$PROJECT_DIR/build" "$PROJECT_DIR/.dart_tool" "$PROJECT_DIR/android/.gradle"
+          rm -rf "$PROJECT_DIR/__MACOSX"
+
+          # Copy all project files into the Git repository root
+          cp -rT "$PROJECT_DIR" "$GITHUB_WORKSPACE/"
+
+      - name: Add Android-Optimized .gitignore
+        run: |
+          cat << 'EOF' > .gitignore
+          .dart_tool/
+          .flutter-plugins
+          .flutter-plugins-dependencies
+          .packages
+          .pub-cache/
+          .pub/
+          /build/
+          /ios/
+          /android/.gradle/
+          /android/captures/
+          /android/local.properties
+          node_modules/
+          EOF
+
+      - name: Commit & Push Extracted Project to GitHub Repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No file changes to commit."
+          else
+            git commit -m "chore: auto-import WRTeam Tic-Tac-Toe Android project from Google Drive"
+            git push origin HEAD:${{ github.ref_name }}
+            echo "### Successfully Imported RAR from Google Drive!" >> $GITHUB_STEP_SUMMARY
+            echo "All Flutter Android files are now in your GitHub repository." >> $GITHUB_STEP_SUMMARY
+          fi
