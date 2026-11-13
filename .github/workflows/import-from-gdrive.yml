@@ -3,10 +3,10 @@ name: 01 - Auto Import RAR/ZIP from Google Drive to Git Repo
 on:
   workflow_dispatch:
     inputs:
-      gdrive_url:
-        description: 'Google Drive Share Link or File ID of your RAR/ZIP'
+      gdrive_id:
+        description: 'Google Drive File ID or Share Link'
         required: true
-        default: 'https://drive.google.com/file/d/1pM-hNExsBy7VvPFBsCGyx-qFrpeVyk9y/view?usp=drivesdk'
+        default: '1pM-hNExsBy7VvPFBsCGyx-qFrpeVyk9y'
   push:
     paths:
       - '.github/workflows/import-from-gdrive.yml'
@@ -25,35 +25,56 @@ jobs:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
 
-      - name: Install gdown, unrar, 7zip & unzip
+      - name: Install Archive Tools (unar, unrar, 7zip, unzip & gdown)
         run: |
+          sudo add-apt-repository multiverse -y || true
           sudo apt-get update
-          sudo apt-get install -y unrar p7zip-full unzip python3-pip file
-          pip3 install --upgrade gdown
+          sudo apt-get install -y unar unrar p7zip-full unzip python3-pip curl file
+          pip3 install gdown || pip3 install --break-system-packages gdown || true
 
-      - name: Download Archive from Google Drive
+      - name: Download Archive from Google Drive (Without --fuzzy)
         env:
-          INPUT_URL: ${{ github.event.inputs.gdrive_url || '1pM-hNExsBy7VvPFBsCGyx-qFrpeVyk9y' }}
+          RAW_INPUT: ${{ github.event.inputs.gdrive_id || '1pM-hNExsBy7VvPFBsCGyx-qFrpeVyk9y' }}
         run: |
-          if [ "$INPUT_URL" = "PASTE_YOUR_GDRIVE_LINK_HERE" ] || [ -z "$INPUT_URL" ]; then
-            echo "ERROR: Please provide your Google Drive Share Link!"
-            exit 1
-          fi
           mkdir -p /tmp/gdrive_download /tmp/gdrive_extracted
-          echo "Downloading from Google Drive: $INPUT_URL"
-          gdown --fuzzy "$INPUT_URL" -O /tmp/gdrive_download/project_archive
+          if echo "$RAW_INPUT" | grep -q "/file/d/"; then
+            FILE_ID=$(echo "$RAW_INPUT" | sed -n 's/.*\/file\/d\/\([a-zA-Z0-9_-]*\).*/\1/p')
+          elif echo "$RAW_INPUT" | grep -q "id="; then
+            FILE_ID=$(echo "$RAW_INPUT" | sed -n 's/.*id=\([a-zA-Z0-9_-]*\).*/\1/p')
+          else
+            FILE_ID="$RAW_INPUT"
+          fi
+
+          echo "Resolved Google Drive File ID: $FILE_ID"
+
+          # Method 1: Direct curl from Google Drive UserContent
+          curl -L "https://drive.usercontent.google.com/download?id=${FILE_ID}&export=download&confirm=t" -o /tmp/gdrive_download/project_archive
+
+          FILE_TYPE=$(file -b /tmp/gdrive_download/project_archive)
+          echo "Downloaded file type via curl: $FILE_TYPE"
+
+          if echo "$FILE_TYPE" | grep -iq "HTML"; then
+            echo "Fallback to gdown..."
+            rm -f /tmp/gdrive_download/project_archive
+            gdown "https://drive.google.com/uc?id=${FILE_ID}" -O /tmp/gdrive_download/project_archive
+          fi
+
+          ls -lh /tmp/gdrive_download/project_archive
 
       - name: Extract RAR / ZIP / 7Z Archive
         run: |
           FILE_TYPE=$(file -b /tmp/gdrive_download/project_archive)
-          echo "Detected archive type: $FILE_TYPE"
-          if echo "$FILE_TYPE" | grep -iq "RAR"; then
-            unrar x -y /tmp/gdrive_download/project_archive /tmp/gdrive_extracted/
-          elif echo "$FILE_TYPE" | grep -iq "Zip"; then
-            unzip -q -o /tmp/gdrive_download/project_archive -d /tmp/gdrive_extracted/
-          else
-            7z x -y /tmp/gdrive_download/project_archive -o/tmp/gdrive_extracted/ || unrar x -y /tmp/gdrive_download/project_archive /tmp/gdrive_extracted/
+          echo "Extracting archive of type: $FILE_TYPE"
+          if echo "$FILE_TYPE" | grep -iq "HTML"; then
+            echo "ERROR: Google Drive returned an HTML page instead of your RAR file!"
+            echo "Make sure the file permission in Google Drive is set to 'Anyone with the link'."
+            exit 1
           fi
+
+          unar -f -o /tmp/gdrive_extracted/ /tmp/gdrive_download/project_archive || \
+          unrar x -y /tmp/gdrive_download/project_archive /tmp/gdrive_extracted/ || \
+          unzip -q -o /tmp/gdrive_download/project_archive -d /tmp/gdrive_extracted/ || \
+          7z x -y /tmp/gdrive_download/project_archive -o/tmp/gdrive_extracted/
 
       - name: Locate Flutter Project (pubspec.yaml) & Clean Android-Only Files
         run: |
@@ -66,9 +87,8 @@ jobs:
             echo "Found Flutter project root at: $PROJECT_DIR"
           fi
 
-          # Delete ios/ folder (Android-only build — saves 147MB+)
+          # Delete ios/ and build/ folders
           rm -rf "$PROJECT_DIR/ios"
-          # Delete temporary build/ and .dart_tool/ caches
           rm -rf "$PROJECT_DIR/build" "$PROJECT_DIR/.dart_tool" "$PROJECT_DIR/android/.gradle"
           rm -rf "$PROJECT_DIR/__MACOSX"
 
