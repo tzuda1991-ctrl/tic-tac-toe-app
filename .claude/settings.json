@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m json.tool)",
+      "mcp__plugin_firebase_firebase__firebase_list_projects",
+      "Bash(echo \"exit: $?\")",
+      "Bash([ -f \"$F\" ])",
+      "Bash(firebase --version)",
+      "Bash(firebase projects:list)",
+      "Bash(firebase deploy *)",
+      "Bash(git checkout *)",
+      "Bash(rm -f firestore-vs-rtdb-split.md)",
+      "Bash(grep -v \"firestore-vs-rtdb-split\" MEMORY.md)",
+      "Bash(mv MEMORY.tmp MEMORY.md)",
+      "Bash(cat MEMORY.md)",
+      "Bash(python3 -c \"import json;d=json.load\\(open\\('ttt-dev-79f02-default-rtdb-export.json'\\)\\);print\\(list\\(d.keys\\(\\)\\)\\)\")",
+      "Bash(dart format *)",
+      "Bash(python3 -c 'import json,sys; d=json.load\\(open\\('\\\\''ttt-dev-79f02-default-rtdb-export.json'\\\\''\\)\\); print\\(list\\(d.keys\\(\\)\\)\\); *)",
+      "Bash(python3 -c \"import json;d=json.load\\(open\\('ttt-dev-79f02-default-rtdb-export.json'\\)\\);u=d.get\\('users',{}\\);print\\('user count:',len\\(u\\)\\);k=next\\(iter\\(u\\)\\);print\\('sample keys:',list\\(u[k].keys\\(\\)\\)\\)\")",
+      "Bash(flutter create *)",
+      "Bash(firebase apps:create web \"TTT Admin Panel\" -P ttt-dev-79f02)",
+      "Bash(firebase apps:sdkconfig WEB 1:307604085965:web:b2292ac2758e8fc1eb5d84 -P ttt-dev-79f02)",
+      "Bash(firebase database:instances:list -P ttt-dev-79f02)",
+      "Bash(firebase database:get / --shallow -P ttt-dev-79f02)",
+      "Bash(firebase database:get /users --shallow -P ttt-dev-79f02)",
+      "Bash(firebase database:get /admins -P ttt-dev-79f02)",
+      "Bash(flutter run *)",
+      "Bash(tee /tmp/ttt_smoke.log)",
+      "Bash(echo \"launched pid $!\")",
+      "Bash(pkill -f \"smoke.dart\")",
+      "Bash(pkill -f \"flutter_tools.snapshot run.*smoke\")",
+      "Bash(pkill -f \"run -d chrome -t lib/smoke.dart\")",
+      "Bash(rm -f lib/smoke.dart /tmp/ttt_auth.log /tmp/ttt_auth.pid)",
+      "Bash(curl -s \"https://ttt-dev-79f02-default-rtdb.firebaseio.com/games.json\")",
+      "Bash(python3 -c ' *)"
+    ],
+    "additionalDirectories": [
+      "/Users/muzammilsumra/Documents/DocumnetTemp/ttt_admin_panel"
+    ]
+  }
+}

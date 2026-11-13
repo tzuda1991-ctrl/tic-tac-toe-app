@@ -1,0 +1,72 @@
+{
+  "project_info": {
+    "project_number": "35348409332",
+    "firebase_url": "https://tictact-a37a5-default-rtdb.firebaseio.com",
+    "project_id": "tictact-a37a5",
+    "storage_bucket": "tictact-a37a5.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:35348409332:android:68d698d2fd25d46ed767a1",
+        "android_client_info": {
+          "package_name": "com.tictac.wrteam.TicTacToe"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "35348409332-4itshv0v5llr5d1o7olhaj4eamgse03l.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.tictac.wrteam.TicTacToe",
+            "certificate_hash": "b240372c8e32e18407e89bb0c65b3261a2c72a44"
+          }
+        },
+        {
+          "client_id": "35348409332-dbm4d1atcruascps6iqvjocqqttg4pss.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.tictac.wrteam.TicTacToe",
+            "certificate_hash": "0d914a4185b5b92f2a48b50470fe3daf2e299409"
+          }
+        },
+        {
+          "client_id": "35348409332-vfqll18rrochcs2mteei61uh7a2772vl.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.tictac.wrteam.TicTacToe",
+            "certificate_hash": "bd1fb9a657f02e994375a3774038cd44b3f0a66f"
+          }
+        },
+        {
+          "client_id": "35348409332-fcmdpaeqqidfl4fdkf1cjaf1fok88mt9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBW38ZiAGa5hUUcQ4NqBfDebniS2_aqCjU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "35348409332-fcmdpaeqqidfl4fdkf1cjaf1fok88mt9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "35348409332-g1ipd95slna60c6ne9cfq49qugq1ub7d.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.tictac.wrteam.TicTacToe"
+              }
+            }
+          ]
+        }
+      },
+      "admob_app_id": "ca-app-pub-5521230412950397~3160174672"
+    }
+  ],
+  "configuration_version": "1"
+}
