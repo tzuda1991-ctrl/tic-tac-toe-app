@@ -26,14 +26,25 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Fix Release Startup Crash & Preserve Launcher Icon (Firebase BoM 34.18.0 & Clean Manifest)
+      - name: Fix Release Startup Crash & Restore Launcher Icon (category.LAUNCHER + Firebase BoM 34.18.0)
         run: |
           # 1. Keep google-services.json consistent across android/app and android/app/src/main
           if [ -f "android/app/google-services.json" ]; then
             cp -f android/app/google-services.json android/app/src/main/google-services.json 2>/dev/null || true
           fi
 
-          # 2. Write clean single-activity AndroidManifest.xml (MainActivity ONLY so Launcher Icon & Open button always appear!)
+          # 2. Align MainActivity.kt folder path with package com.tictac.wrteam.TicTacToe
+          rm -rf android/app/src/main/kotlin/com/example
+          mkdir -p android/app/src/main/kotlin/com/tictac/wrteam/TicTacToe
+          cat << 'EOF' > android/app/src/main/kotlin/com/tictac/wrteam/TicTacToe/MainActivity.kt
+          package com.tictac.wrteam.TicTacToe
+
+          import io.flutter.embedding.android.FlutterActivity
+
+          class MainActivity: FlutterActivity()
+          EOF
+
+          # 3. Write clean AndroidManifest.xml with android.intent.category.LAUNCHER (Restores App Icon & Open Button!)
           cat << 'EOF' > android/app/src/main/AndroidManifest.xml
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET"/>
@@ -49,6 +60,7 @@ jobs:
                       android:name=".MainActivity"
                       android:exported="true"
                       android:launchMode="singleTop"
+                      android:taskAffinity=""
                       android:theme="@style/LaunchTheme"
                       android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
                       android:hardwareAccelerated="true"
@@ -59,7 +71,7 @@ jobs:
                         />
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN"/>
-                          <category android:name="android.intent.action.LAUNCHER"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
                       </intent-filter>
                   </activity>
 
@@ -81,7 +93,7 @@ jobs:
           </manifest>
           EOF
 
-          # 3. Fix android/app/build.gradle (Upgrade firebase-bom from 33.7.0 to 34.18.0 & remove broken datastore 1.2.0 constraints)
+          # 4. Upgrade firebase-bom from 33.7.0 to 34.18.0 in android/app/build.gradle (Fixes "TicTacToe keeps stopping" crash)
           cat << 'EOF' > android/app/build.gradle
           plugins {
               id "com.android.application"
@@ -146,7 +158,7 @@ jobs:
           }
           EOF
 
-          # 4. Safe lib/main.dart initialization
+          # 5. Safe lib/main.dart initialization
           cat << 'EOF' > lib/main.dart
           import 'package:flutter/foundation.dart';
           import 'package:flutter/material.dart';
@@ -194,15 +206,13 @@ jobs:
             }
 
             try {
-              if (Firebase.apps.isEmpty) {
-                await Firebase.initializeApp(
-                  options: DefaultFirebaseOptions.currentPlatform,
-                );
-              }
+              await Firebase.initializeApp();
             } catch (e) {
               try {
                 if (Firebase.apps.isEmpty) {
-                  await Firebase.initializeApp();
+                  await Firebase.initializeApp(
+                    options: DefaultFirebaseOptions.currentPlatform,
+                  );
                 }
               } catch (e2) {
                 debugPrint('Firebase init error: $e2');
@@ -281,7 +291,7 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
             "$AAPT_BIN" dump badging "$APK_FILE" | grep -E "package:|launchable-activity:|application-label:" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            "$AAPT_BIN" dump badging "$APK_FILE" | grep -E "package:|launchable-activity:|application-label:"
+            "$AAPT_BIN" dump badging "$APK_FILE" | grep "launchable-activity:"
           fi
 
       - name: Upload Compiled APK Artifact
